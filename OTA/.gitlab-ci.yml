@@ -1,0 +1,42 @@
+stages:
+  - build
+  - release
+
+variables:
+  PACKAGE_VERSION: "1.1.0"
+  PACKAGE_BUILD: "2"
+
+build_firmware:
+  stage: build
+  image: python:3.11-slim
+  before_script:
+    - pip install platformio
+  script:
+    - pio run
+    - mkdir -p release
+    - cp .pio/build/esp32dev/firmware.bin release/firmware-v${PACKAGE_VERSION}-b${PACKAGE_BUILD}.bin
+    - SHA=$(sha256sum release/firmware-v${PACKAGE_VERSION}-b${PACKAGE_BUILD}.bin | awk '{print $1}')
+    - SIZE=$(stat -c%s release/firmware-v${PACKAGE_VERSION}-b${PACKAGE_BUILD}.bin)
+    - |
+      cat <<EOF > release/manifest.json
+      {
+        "version": "${PACKAGE_VERSION}",
+        "build": ${PACKAGE_BUILD},
+        "size": ${SIZE},
+        "sha256": "${SHA}",
+        "url": "gitlab.com/api/v4/projects/${CI_PROJECT_ID}/packages/generic/firmware/${PACKAGE_VERSION}/firmware-v${PACKAGE_VERSION}-b${PACKAGE_BUILD}.bin",
+        "port": 443
+      }
+      EOF
+  artifacts:
+    paths:
+      - release/
+
+upload_release:
+  stage: release
+  image: curlimages/curl:latest
+  dependencies:
+    - build_firmware
+  script:
+    - 'curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file release/firmware-v${PACKAGE_VERSION}-b${PACKAGE_BUILD}.bin "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/firmware/${PACKAGE_VERSION}/firmware-v${PACKAGE_VERSION}-b${PACKAGE_BUILD}.bin"'
+    - 'curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file release/manifest.json "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/firmware/${PACKAGE_VERSION}/manifest.json"'
